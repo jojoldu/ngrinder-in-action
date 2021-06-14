@@ -122,8 +122,35 @@ files:
 
 **.ebextensions/02-system-tuning.config**
 
+```bash
+files:
+  "/etc/security/limits.conf":
+    content: |
+      *           soft    nofile          65535
+      *           hard    nofile          65535
+
+commands:
+  01:
+    command: "echo \"10240 65535\" > /proc/sys/net/ipv4/ip_local_port_range"
+  02:
+    command: "sysctl -w \"net.ipv4.tcp_timestamps=1\""
+  03:
+    command: "sysctl -w \"net.ipv4.tcp_tw_reuse=1\""
+  04:
+    command: "echo \"net.ipv4.tcp_max_tw_buckets=2000000\" >> /etc/sysctl.conf"
+  10:
+    command: "sysctl -p"
+```
+
 **.ebextensions/03-timezone.config**
 
+```bash
+commands:
+  01remove_local:
+    command: "rm -rf /etc/localtime"
+  02link_seoul_zone:
+    command: "ln -s /usr/share/zoneinfo/Asia/Seoul /etc/localtime"
+```
 
 
 **.platform/nginx/nginx.conf**
@@ -178,8 +205,28 @@ http {
 
 (1) `location /`
 * Beanstalk의 Load Balancer Health Check 주소가 `/`
+* Ngrinder의 Agent가 Health Check 대상이 되기 보다는 Nginx에서 바로 `/`로 200응답을 주게 하여 Health Check를 통과하도록 구성
 
 
 ## 4. 배포하기
+
+**deploy.sh**
+
+```bash
+#!/usr/bin/env bash
+
+DIR=deploy
+
+if [ -d "$DIR" ]; then rm -Rf $DIR; fi
+
+mkdir $DIR
+cp -r .ebextensions ./deploy/
+cp -r .platform ./deploy/
+cp -r ngrinder-agent-*.tar ./deploy/
+cp -r Procfile ./deploy/
+cd deploy
+zip -r agent.zip .
+mv agent.zip ../
+```
 
 > Github Action으로 설정이 변경될때마다 배포하는 방법도 추후 포스팅하겠습니다.
