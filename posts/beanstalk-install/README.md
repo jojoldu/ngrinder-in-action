@@ -25,45 +25,74 @@ Ngrinder의 release 페이지를 가보시면 현재 사용 가능한 버전들�
 
 * [Ngrinder release](https://github.com/naver/ngrinder/releases)
 
-현재 3.5.5가 최신이니, 3.5.5 버전을 다운 받아 보겠습니다.  
+현재 3.5.5가 최신이니, 3.5.5 버전을 사용하겠습니다.  
+
+> 당연한 얘기지만, AWS EC2에서 진행됩니다.  
+> AWS EC2환경을 먼저 구축하고 해당 서버에서 SSH 접속후 진행해주세요.
+
+아래처럼 `war` 파일을 우클릭하여 **링크주소를 복사**합니다.
 
 ![controller1](./images/controller1.png)
 
+복사한 링크 주소를 `wget`으로 다운 받습니다.
 
 ```bash
 wget https://github.com/naver/ngrinder/releases/download/ngrinder-3.5.5-20210430/ngrinder-controller-3.5.5.war
 ```
 
+다운받은 war를 실행하기 편하도록 버전명을 제거한 이름으로 변경하겠습니다.
+
+> `link`를 하셔도 무방합니다. 
+
 ```bash
 mv ngrinder-controller-3.5.5.war ngrinder-controller.war
 ```
+
+해당 war를 세션 종료 방지 & 백그라운드 실행을 위해 `nohup &` 으로 실행하겠습니다.  
 
 ```bash
 nohup java -jar ngrinder-controller.war >/dev/null 2>&1 &
 ```
 
+(만약 잘 실행이 안된다면 `java -jar ngrinder-controller.war` 만 수행해서 console로 로그를 확인해서 수정후 다시 `nohup &`으로 실행하시면 됩니다.)  
+  
+명령어 실행 후, Java 프로세스를 확인해봅니다.
 
 ```bash
 ps -ef | grep java
 ```
+
+아래와 같이 실행한 `war` 프로세스가 잘 보인다면 성공입니다.
 
 ```bash
 ec2-user  2601  2528 21 15:06 pts/0    00:00:00 java -jar ngrinder-controller.war
 ec2-user  2614  2528  0 15:06 pts/0    00:00:00 grep --color=auto java
 ```
 
+실행이되면 `8080` 포트로 해당 웹 사이트를 접근할 수 있습니다.
 
 ![controller2](./images/controller2.png)
 
-![controller3](./images/controller3.png)
+> 초기 ID/PW는 `admin/admin` 입니다.
 
-![controller4](./images/controller4.png)
+로그인까지 확인되시면 바로 Controller쪽 설정은 끝났습니다.
 
 ## 2. Security Group 생성
 
+Ngrinder의 정상적인 연동을 위해선 Agent가 Controller에 접근이 가능해야만 하는데요.  
+그래서 둘 간의 통신을 위한 보안그룹을 별도로 생성합니다.  
+
+> 서로 다른 EC2간의 통신에 대한 내용은 [기존 포스팅](https://jojoldu.tistory.com/430)을 참고하시면 좋습니다.
+  
 **NGRINDER_AGENT**
 
 ![sg1](./images/sg1.png)
+
+* agent 전용 보안그룹에는 별도의 인바운드가 없어도 됩니다.
+* agent의 `ssh` 접근을 위한 보안그룹인 `NGRINDER_AGENT` 외에 **별도로 관리**하시길 추천드립니다.
+  * ex) `EC2_SSH` 등의 보안그룹을 별도로 만들어서 agent EC2에 2개의 보안그룹을 둘다 추가하셔도 좋습니다.
+
+이렇게 만들어진 agent 보안그룹을 controller 보안그룹의 인바운드로 추가하면 됩니다.
 
 **NGRINDER_CONTROLLER**
 
@@ -71,11 +100,19 @@ ec2-user  2614  2528  0 15:06 pts/0    00:00:00 grep --color=auto java
 
 ![sg3](./images/sg3.png)
 
-* `80` 포트는 `wget`을 통해 controller에서 agent 설치 파일을 다운 받기 위해 추가합니다.
+* `80` 포트는 `wget`을 통해 agent가 **controller의 agent 설치 파일을 다운** 받기 위해 추가합니다.
 
-그리고 이렇게 만들어진 보안 그룹은 
+그리고 이렇게 만들어진 보안 그룹은 각 서버에 추가하겠습니다.  
+
+* Controller는 1에서 구축되었으니, 바로 추가하시면 됩니다.
+* Agent는 아래에서 Beanstalk 환경 진행시 같이 추가합니다.
 
 ## 3. Beanstalk에 Agent 설치하기
+
+![controller3](./images/controller3.png)
+
+![controller4](./images/controller4.png)
+
 
 ![eb1](./images/eb1.png)
 
