@@ -109,18 +109,46 @@ Ngrinder의 정상적인 연동을 위해선 Agent가 Controller에 접근이 �
 
 ## 3. Beanstalk에 Agent 설치하기
 
+자 이제 동적으로 서버를 스케일링 할 수 있는 Beanstalk에 Agent를 설치해볼텐데요.  
+
+### 3-1. Agent 설치 링크 가져오기
+
+먼저 Agent 설치 파일 다운로드 링크를 받아와야 합니다.  
+Agent는 Controller 페이지에서 직접 제공합니다.  
+  
+Controller에서 우측 상단 프로필을 클릭후 `Agent Management`를 선택합니다.
+
 ![controller3](./images/controller3.png)
+
+그럼 아래와 같이 Download 링크가 나오는데 이를 우클릭하여 **링크주소복사**를 합니다.
 
 ![controller4](./images/controller4.png)
 
+이렇게 가져온 링크는 아래 Beanstalk config 파일에서 사용할 예정이니, 별도 텍스트 파일에 복사해놓으시면 됩니다.
+
+### 3-2. Beanstalk 설정하기
+
+> AWS Beanstalk에 대해서 어느정도 사용해본적이 있다고 가정하고 진행합니다.
+
+본인의 환경에 맞게 Beanstalk을 생성하시면 되는데, 하나만 기존과 다르게 진행해주시면 되는데요.
 
 ![eb1](./images/eb1.png)
 
-![eb2](./images/eb2.png)
+Agent의 보안그룹으로 `2. Security Group 생성`에서 생성했던 NGRINDER_AGENT 보안그룹만 하나더 추가해주시면 됩니다.
 
 ![eb-sg](./images/eb-sg.png)
 
-### Beanstalk config
+(다른 보안그룹 없이 이것만 하라는 의미가 아니라, **이것도 함께 추가**입니다.)
+
+* 이 보안그룹이 추가되어야만 Controller가 Agent를 인식할 수 있습니다.
+
+기본적인 Beanstalk 환경이 구성되었다면, 이제 Config 파일을 만들어보겠습니다.
+
+### 3-3. Beanstalk config
+
+> 모든 코드는 [Github](https://github.com/jojoldu/ngrinder-in-action) 에 있습니다.
+
+Agent에 사용될 프로젝트는 다음과 같은 구조를 가집니다.
 
 ```bash
 
@@ -138,6 +166,8 @@ Ngrinder의 정상적인 연동을 위해선 Agent가 Controller에 접근이 �
 ├─ README.md
 ```
 
+각각의 파일은 다음과 같습니다.  
+  
 **.ebextensions/01-appstart.config**
 
 ```bash
@@ -148,7 +178,7 @@ files:
         group: webapp
         content: |
             #!/usr/bin/env bash
-            COLLECTOR="collector ip"
+            COLLECTOR="collector ip" 
             AGENT_FILE_HOST="agent download link"
             wget ${AGENT_FILE_HOST} -P /var/app/current
             tar -xvf /var/app/current/ngrinder-agent-*.tar
@@ -156,6 +186,14 @@ files:
             killall java
             /var/app/current/ngrinder-agent/run_agent.sh -ch ${COLLECTOR}
 ```
+
+* agent 파일을 실행할 `appstart` 스크립트를 생성합니다.
+* collector ip는 **private ip**를 등록합니다.
+* `AGENT_FILE_HOST` 에는 3-1 에서 가져온 Agent 링크를 넣습니다. 
+* Agent의 실행 자체는 크게 어렵지 않습니다.
+  * 다운 받은 agnet.tar 파일의 압축을 풀고 (`tar -xvf`) 이를 `run_agent.sh` 로 실행만 하면 됩니다.
+  * `-ch ${COLLECTOR}` 는 Agent가 데이터를 보낼 Controller의 위치를 지정하는 옵션입니다.
+  * 기본값은 `localhost`라서 외부에 연결할 경우 이번처럼 `ch` 옵션을 사용하면 됩니다. 
 
 **.ebextensions/02-system-tuning.config**
 
@@ -179,6 +217,9 @@ commands:
     command: "sysctl -p"
 ```
 
+* agent가 최대한의 성능을 내기 위해 기본적인 OS 성능 튜닝 설정을 합니다.
+* 각 설정에 대한 상세한 내용은 [AWS Beanstalk을 이용한 성능 튜닝 시리즈](https://jojoldu.tistory.com/319) 을 참고하시면 됩니다.
+
 **.ebextensions/03-timezone.config**
 
 ```bash
@@ -189,6 +230,7 @@ commands:
     command: "ln -s /usr/share/zoneinfo/Asia/Seoul /etc/localtime"
 ```
 
+* 성능 테스트시 시간 오차를 방지하기 위해 타임존을 KST로 변환합니다.
 
 **.platform/nginx/nginx.conf**
 
@@ -241,12 +283,17 @@ http {
 ```
 
 (1) `location /`
-* Beanstalk의 Load Balancer Health Check 주소가 `/`
-* Ngrinder의 Agent가 Health Check 대상이 되기 보다는 Nginx에서 바로 `/`로 200응답을 주게 하여 Health Check를 통과하도록 구성
+* Beanstalk의 Load Balancer Health Check 기본 주소가 `/` 입니다.
+* Ngrinder의 Agent가 Health Check 대상이 되기 보다는 Nginx에서 바로 `/`로 200 응답을 주게 하여 Health Check를 통과하도록 구성합니다.
+* Agent는 별도로 API 응답을 할 용도가 아니기 때문에 이런 기본적인 헬스체크에 대해서는 Nginx에서 처리합니다.
 
+이렇게 구성이 다되셨으면 실제로 배포를 진행해보겠습니다.
 
 ## 4. 배포하기
 
+위 `3-3. Beanstalk config` 에서 설정한 내용 그대로 배포용 zip 파일을 만들면 되는데요.  
+매번 수동으로 쉘 명령어를 치기보다는 빠르게 스크립트를 만들어서 진행합니다.  
+  
 **deploy.sh**
 
 ```bash
@@ -259,11 +306,41 @@ if [ -d "$DIR" ]; then rm -Rf $DIR; fi
 mkdir $DIR
 cp -r .ebextensions ./deploy/
 cp -r .platform ./deploy/
-cp -r ngrinder-agent-*.tar ./deploy/
 cp -r Procfile ./deploy/
 cd deploy
 zip -r agent.zip .
 mv agent.zip ../
 ```
+
+작성이 다 되시면 `chmod +x ./deploy.sh` 로 **실행권한**을 줍니다.  
+그리고 스크립트를 실행해보시면 아래와 같이 차례로 명령어가 수행되어 `agent.zip` 파일이 생성됩니다.
+
+```bash
+$ ./deploy.sh
+adding: .ebextensions/ (stored 0%)
+adding: .ebextensions/03-timezone.config (deflated 31%)
+adding: .ebextensions/02-system-tuning.config (deflated 52%)
+adding: .ebextensions/01-appstart.config (deflated 47%)
+adding: Procfile (stored 0%)
+adding: .platform/ (stored 0%)
+adding: .platform/nginx/ (stored 0%)
+adding: .platform/nginx/nginx.conf (deflated 54%)
+```
+
+이렇게 생성된 zip 파일을 수동으로 Beanstalk에 배포해봅니다.
+
+![upload1](./images/upload1.png)
+
+여기서 파일 선택으로 해당 `agent.zip` 파일을 선택해서 **배포**를 합니다.
+
+![upload2](./images/upload2.png)
+
+정상적으로 배포가 되시면 다음과 같이 Success 상태를 확인할 수 있습니다.
+
+![upload3](./images/upload3.png)
+
+최종적으로 Controller의 Agent Management에서도 **Agent가 표기** 되면 성공입니다!
+
+![upload4](./images/upload4.png)
 
 > Github Action으로 설정이 변경될때마다 배포하는 방법도 추후 포스팅하겠습니다.
